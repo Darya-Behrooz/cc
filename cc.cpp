@@ -1,4 +1,7 @@
-﻿#include <iostream>
+#include <cerrno>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
 #include <string>
 #include <Windows.h>
 
@@ -6,19 +9,51 @@
 [[noreturn]] void errHandle(int errNo , const char* errLocation)
 {
 	LPWSTR errMsg;
-
 	FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_MAX_WIDTH_MASK , NULL , errNo , NULL , reinterpret_cast<LPWSTR>(&errMsg) , NULL , NULL);
 
-	std::wcerr << "=== ERROR --- {" << errLocation << "} FAILED --- " << errNo << ": " << errMsg << "===" << std::endl;
-	std::cerr << "=== PROGRAM TERMINATED {" << errNo << "} ===" << std::endl;
+	#ifdef _DEBUG
+		std::wcerr << "=== ERROR --- {" << errLocation << "} FAILED --- " << errNo << ": " << errMsg << "===" << std::endl;
+		std::cerr << "=== PROGRAM TERMINATED {" << errNo << "} ===" << std::endl;
+	#else
+		std::wcerr << "[" << errNo << "] " << errMsg << std::endl;
+	#endif
 
 	LocalFree(errMsg);
 	exit(errNo);
 }
 
 
-int main()
+void help()
 {
+	std::cout << "cc: writes output of the previous pipe to the shell, and also copies it to the clipboard" << std::endl << std::endl;
+
+	std::cout << "Usage:" << std::endl;
+	std::cout << "<command> | cc" << std::endl;
+	std::cout << "The output of <command> will be copied to the clipboard and outputted" << std::endl;
+	std::cout << "No arguments are taken" << std::endl << std::endl;
+
+	std::cout << "Flags:" << std::endl;
+	std::cout << "Show help: -?, /?, -h, /h, --help, /help" << std::endl;
+
+	return;
+}
+
+
+int main(int argC , char* argV[])
+{
+	if (argC > 1)
+	{
+		if (!_stricmp(argV[1] , "-?") || !_stricmp(argV[1] , "/?") || !_stricmp(argV[1] , "-h") || !_stricmp(argV[1] , "/h") || !_stricmp(argV[1] , "--help") || !_stricmp(argV[1] , "/help"))
+		{
+			help();
+			return 0;
+		}
+
+		std::cerr << "cc: no arguments taken" << std::endl;
+		errHandle(EINVAL, "argV[1]");
+	}
+
+
 	const HANDLE stdinHandle = GetStdHandle(STD_INPUT_HANDLE);
 	if (stdinHandle == INVALID_HANDLE_VALUE)
 	{
@@ -49,7 +84,7 @@ int main()
 			{
 				errHandle(GetLastError() , "ReadFile(stdinHandle , stdinBuf , sizeof(stdinBuf) , &stdinBytes , NULL)");
 			}
-			break;
+			break; // write handle closed, treated as EOF
 		}
 
 		if (stdinBytes == 0)
@@ -113,16 +148,16 @@ int main()
 
 	while (true)
 	{
-		if (!GlobalUnlock(handleMem))
+		if (!GlobalUnlock(handleMem)) //! failure
 		{
 			if (GetLastError() != NO_ERROR)
 			{
 				errHandle(GetLastError() , "GlobalUnlock(handleMem)");
 			}
 
-			break;
+			break; //- success
 		}
-		[[unlikely]];
+		[[unlikely]]; //? still locked, pending success
 	}
 
 	if (!SetClipboardData(CF_TEXT , handleMem))
