@@ -23,17 +23,39 @@
 }
 
 
+class clipboardRAII
+{
+	public:
+		clipboardRAII()
+		{
+			if (!OpenClipboard(NULL))
+			{
+				errHandle(GetLastError() , "OpenClipboard(NULL)");
+			}
+		}
+
+		~clipboardRAII()
+		{
+			if (!CloseClipboard())
+			{
+				errHandle(GetLastError() , "CloseClipboard()");
+			}
+		}
+};
+
+
 void help()
 {
-	std::cout << "cc: writes output of the previous pipe to the shell, and also copies it to the clipboard" << std::endl << std::endl;
+	std::cout <<
+		"cc: writes output of the previous pipe to the shell, and also copies it to the clipboard\n\n"
 
-	std::cout << "Usage:" << std::endl;
-	std::cout << "<command> | cc" << std::endl;
-	std::cout << "The output of <command> will be copied to the clipboard and outputted" << std::endl;
-	std::cout << "No arguments are taken" << std::endl << std::endl;
+		"Usage:\n"
+		"<command> | cc\n"
+		"The output of <command> will be copied to the clipboard and outputted\n"
+		"No arguments are taken\n\n"
 
-	std::cout << "Flags:" << std::endl;
-	std::cout << "Show help: -?, /?, -h, /h, --help, /help" << std::endl;
+		"Flags:\n" <<
+		"Show help: -?, /?, -h, /h, --help, /help\n";
 
 	return;
 }
@@ -55,7 +77,7 @@ int main(int argC , char* argV[])
 
 
 	const HANDLE stdinHandle = GetStdHandle(STD_INPUT_HANDLE);
-	if (!stdinHandle || stdinHandle == INVALID_HANDLE_VALUE)
+	if (stdinHandle == INVALID_HANDLE_VALUE || !stdinHandle)
 	{
 		errHandle(GetLastError() , "GetStdHandle(STD_INPUT_HANDLE)");
 	}
@@ -97,7 +119,7 @@ int main(int argC , char* argV[])
 
 
 	const HANDLE stdoutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (!stdoutHandle || stdoutHandle == INVALID_HANDLE_VALUE)
+	if (stdoutHandle == INVALID_HANDLE_VALUE || !stdoutHandle)
 	{
 		errHandle(GetLastError() , "GetStdHandle(STD_OUTPUT_HANDLE)");
 	}
@@ -122,38 +144,36 @@ int main(int argC , char* argV[])
 	}
 
 
-	UINT WINAPI stdinCodepage = GetConsoleOutputCP();
+	UINT stdinCodepage = GetConsoleOutputCP();
 	if (!stdinCodepage)
 	{
 		errHandle(GetLastError() , "GetConsoleOutputCP()");
 	}
 
-	int convBuf = MultiByteToWideChar(stdinCodepage , NULL , data.data() , data.size() , nullptr , 0);
+	int convBuf = MultiByteToWideChar(stdinCodepage , 0 , data.data() , data.size() , nullptr , 0);
 	if (!convBuf)
 	{
-		errHandle(GetLastError() , "MultiByteToWideChar(stdinCodepage , NULL , data.data() , data.size() , nullptr , 0)");
+		errHandle(GetLastError() , "MultiByteToWideChar(stdinCodepage , 0 , data.data() , data.size() , nullptr , 0)");
 	}
-	std::wstring dataUTF16(convBuf + 1 , L'\0');
-	if (!MultiByteToWideChar(stdinCodepage , NULL , data.data() , data.size() , dataUTF16.data() , convBuf))
+	std::wstring dataUTF16;
+	dataUTF16.resize(convBuf);
+	if (!MultiByteToWideChar(stdinCodepage , 0 , data.data() , data.size() , dataUTF16.data() , convBuf))
 	{
-		errHandle(GetLastError() , "stdinCodepage , NULL , data.data() , data.size() , dataUTF16.data() , convBuf)");
+		errHandle(GetLastError() , "MultiByteToWideChar(stdinCodepage , 0 , data.data() , data.size() , dataUTF16.data() , convBuf)");
 	}
 
 
-	if (!OpenClipboard(NULL))
-	{
-		errHandle(GetLastError() , "OpenClipboard(NULL)");
-	}
+	clipboardRAII clipboard;
 
 	if (!EmptyClipboard())
 	{
 		errHandle(GetLastError() , "EmptyClipboard()");
 	}
 
-	HGLOBAL handleMem = GlobalAlloc(GHND , dataUTF16.size() * sizeof(wchar_t));
+	HGLOBAL handleMem = GlobalAlloc(GHND , (dataUTF16.size() + 1) * sizeof(wchar_t));
 	if (!handleMem)
 	{
-		errHandle(GetLastError() , "GlobalAlloc(GHND , dataUTF16.size() * sizeof(wchar_t))");
+		errHandle(GetLastError() , "GlobalAlloc(GHND , (dataUTF16.size() + 1) * sizeof(wchar_t))");
 	}
 
 	LPVOID ptrMem = GlobalLock(handleMem);
@@ -163,6 +183,7 @@ int main(int argC , char* argV[])
 	}
 
 	memcpy(ptrMem , dataUTF16.data() , dataUTF16.size() * sizeof(wchar_t));
+	reinterpret_cast<LPWSTR>(ptrMem)[dataUTF16.size()] = L'\0';
 
 	while (true)
 	{
@@ -182,11 +203,6 @@ int main(int argC , char* argV[])
 	{
 		GlobalFree(handleMem);
 		errHandle(GetLastError() , "SetClipboardData(CF_UNICODETEXT , handleMem)");
-	}
-
-	if (!CloseClipboard())
-	{
-		errHandle(GetLastError() , "CloseClipboard()");
 	}
 
 
