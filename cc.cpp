@@ -55,7 +55,7 @@ int main(int argC , char* argV[])
 
 
 	const HANDLE stdinHandle = GetStdHandle(STD_INPUT_HANDLE);
-	if (stdinHandle == INVALID_HANDLE_VALUE)
+	if (!stdinHandle || stdinHandle == INVALID_HANDLE_VALUE)
 	{
 		errHandle(GetLastError() , "GetStdHandle(STD_INPUT_HANDLE)");
 	}
@@ -84,7 +84,7 @@ int main(int argC , char* argV[])
 			{
 				errHandle(GetLastError() , "ReadFile(stdinHandle , stdinBuf , sizeof(stdinBuf) , &stdinBytes , NULL)");
 			}
-			break; // write handle closed, treated as EOF
+			break; //- write handle closed, treated as EOF
 		}
 
 		if (stdinBytes == 0)
@@ -97,7 +97,7 @@ int main(int argC , char* argV[])
 
 
 	const HANDLE stdoutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (stdoutHandle == INVALID_HANDLE_VALUE)
+	if (!stdoutHandle || stdoutHandle == INVALID_HANDLE_VALUE)
 	{
 		errHandle(GetLastError() , "GetStdHandle(STD_OUTPUT_HANDLE)");
 	}
@@ -122,6 +122,24 @@ int main(int argC , char* argV[])
 	}
 
 
+	UINT WINAPI stdinCodepage = GetConsoleOutputCP();
+	if (!stdinCodepage)
+	{
+		errHandle(GetLastError() , "GetConsoleOutputCP()");
+	}
+
+	int convBuf = MultiByteToWideChar(stdinCodepage , NULL , data.data() , data.size() , nullptr , 0);
+	if (!convBuf)
+	{
+		errHandle(GetLastError() , "MultiByteToWideChar(stdinCodepage , NULL , data.data() , data.size() , nullptr , 0)");
+	}
+	std::wstring dataUTF16(convBuf + 1 , L'\0');
+	if (!MultiByteToWideChar(stdinCodepage , NULL , data.data() , data.size() , dataUTF16.data() , convBuf))
+	{
+		errHandle(GetLastError() , "stdinCodepage , NULL , data.data() , data.size() , dataUTF16.data() , convBuf)");
+	}
+
+
 	if (!OpenClipboard(NULL))
 	{
 		errHandle(GetLastError() , "OpenClipboard(NULL)");
@@ -132,10 +150,10 @@ int main(int argC , char* argV[])
 		errHandle(GetLastError() , "EmptyClipboard()");
 	}
 
-	HGLOBAL handleMem = GlobalAlloc(GHND , data.size() + 1);
+	HGLOBAL handleMem = GlobalAlloc(GHND , dataUTF16.size() * sizeof(wchar_t));
 	if (!handleMem)
 	{
-		errHandle(GetLastError() , "GlobalAlloc(GHND , data.size() + 1)");
+		errHandle(GetLastError() , "GlobalAlloc(GHND , dataUTF16.size() * sizeof(wchar_t))");
 	}
 
 	LPVOID ptrMem = GlobalLock(handleMem);
@@ -144,7 +162,7 @@ int main(int argC , char* argV[])
 		errHandle(GetLastError() , "GlobalLock(handleMem)");
 	}
 
-	memcpy(ptrMem , data.data() , data.size() + 1);
+	memcpy(ptrMem , dataUTF16.data() , dataUTF16.size() * sizeof(wchar_t));
 
 	while (true)
 	{
@@ -160,10 +178,10 @@ int main(int argC , char* argV[])
 		[[unlikely]]; //? still locked, pending success
 	}
 
-	if (!SetClipboardData(CF_TEXT , handleMem))
+	if (!SetClipboardData(CF_UNICODETEXT , handleMem))
 	{
 		GlobalFree(handleMem);
-		errHandle(GetLastError() , "SetClipboardData(CF_TEXT , handleMem)");
+		errHandle(GetLastError() , "SetClipboardData(CF_UNICODETEXT , handleMem)");
 	}
 
 	if (!CloseClipboard())
